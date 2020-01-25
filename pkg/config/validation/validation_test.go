@@ -289,6 +289,34 @@ func TestValidateConnectTimeout(t *testing.T) {
 	}
 }
 
+func TestValidateProtocolDetectionTimeout(t *testing.T) {
+	type durationCheck struct {
+		duration *types.Duration
+		isValid  bool
+	}
+
+	checks := []durationCheck{
+		{
+			duration: &types.Duration{Seconds: 1},
+			isValid:  true,
+		},
+		{
+			duration: &types.Duration{Nanos: 99999},
+			isValid:  false,
+		},
+		{
+			duration: &types.Duration{Nanos: 0},
+			isValid:  true,
+		},
+	}
+
+	for _, check := range checks {
+		if got := ValidateProtocolDetectionTimeout(check.duration); (got == nil) != check.isValid {
+			t.Errorf("Failed: got valid=%t but wanted valid=%t: %v for %v", got == nil, check.isValid, got, check.duration)
+		}
+	}
+}
+
 func TestValidateMeshConfig(t *testing.T) {
 	if ValidateMeshConfig(&meshconfig.MeshConfig{}) == nil {
 		t.Error("expected an error on an empty mesh config")
@@ -1911,7 +1939,7 @@ func TestValidatePortName(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validatePortName(tc.name); (err == nil) != tc.valid {
+			if err := ValidatePortName(tc.name); (err == nil) != tc.valid {
 				t.Fatalf("got valid=%v but wanted valid=%v: %v", err == nil, tc.valid, err)
 			}
 		})
@@ -2230,6 +2258,31 @@ func TestValidateHTTPRoute(t *testing.T) {
 			Match: nil,
 		}, valid: true},
 		{name: "match with nil element", route: &networking.HTTPRoute{
+			Route: []*networking.HTTPRouteDestination{{
+				Destination: &networking.Destination{Host: "foo.bar"},
+			}},
+			Match: []*networking.HTTPMatchRequest{nil},
+		}, valid: true},
+		{name: "invalid mirror percent", route: &networking.HTTPRoute{
+			MirrorPercent: &types.UInt32Value{Value: 101},
+			Route: []*networking.HTTPRouteDestination{{
+				Destination: &networking.Destination{Host: "foo.bar"},
+			}},
+			Match: []*networking.HTTPMatchRequest{nil},
+		}, valid: false},
+		{name: "invalid mirror percentage", route: &networking.HTTPRoute{
+			MirrorPercentage: &networking.Percent{
+				Value: 101,
+			},
+			Route: []*networking.HTTPRouteDestination{{
+				Destination: &networking.Destination{Host: "foo.bar"},
+			}},
+			Match: []*networking.HTTPMatchRequest{nil},
+		}, valid: false},
+		{name: "valid mirror percentage", route: &networking.HTTPRoute{
+			MirrorPercentage: &networking.Percent{
+				Value: 1,
+			},
 			Route: []*networking.HTTPRouteDestination{{
 				Destination: &networking.Destination{Host: "foo.bar"},
 			}},

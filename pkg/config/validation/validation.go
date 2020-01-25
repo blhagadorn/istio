@@ -773,14 +773,14 @@ func validateSidecarEgressPortBindAndCaptureMode(port *networking.Port, bind str
 
 	// Port name is optional. Validate if exists.
 	if len(port.Name) > 0 {
-		errs = appendErrors(errs, validatePortName(port.Name))
+		errs = appendErrors(errs, ValidatePortName(port.Name))
 	}
 
 	// Handle Unix domain sockets
 	if port.Number == 0 {
 		// require bind to be a unix domain socket
 		errs = appendErrors(errs,
-			validateProtocol(port.Protocol))
+			ValidateProtocol(port.Protocol))
 
 		if !strings.HasPrefix(bind, UnixAddressPrefix) {
 			errs = appendErrors(errs, fmt.Errorf("sidecar: ports with 0 value must have a unix domain socket bind address"))
@@ -793,7 +793,7 @@ func validateSidecarEgressPortBindAndCaptureMode(port *networking.Port, bind str
 		}
 	} else {
 		errs = appendErrors(errs,
-			validateProtocol(port.Protocol),
+			ValidateProtocol(port.Protocol),
 			ValidatePort(int(port.Number)))
 
 		if len(bind) != 0 {
@@ -808,11 +808,11 @@ func validateSidecarIngressPortAndBind(port *networking.Port, bind string) (errs
 
 	// Port name is optional. Validate if exists.
 	if len(port.Name) > 0 {
-		errs = appendErrors(errs, validatePortName(port.Name))
+		errs = appendErrors(errs, ValidatePortName(port.Name))
 	}
 
 	errs = appendErrors(errs,
-		validateProtocol(port.Protocol),
+		ValidateProtocol(port.Protocol),
 		ValidatePort(int(port.Number)))
 
 	if len(bind) != 0 {
@@ -1120,6 +1120,23 @@ func ValidateConnectTimeout(timeout *types.Duration) error {
 	return err
 }
 
+// ValidateProtocolDetectionTimeout validates the envoy protocol detection timeout
+func ValidateProtocolDetectionTimeout(timeout *types.Duration) error {
+	dur, err := types.DurationFromProto(timeout)
+	if err != nil {
+		return err
+	}
+	// 0s is a valid value if trying to disable protocol detection timeout
+	if dur == time.Second*0 {
+		return nil
+	}
+	if dur%time.Millisecond != 0 {
+		return errors.New("only durations to ms precision are supported")
+	}
+
+	return nil
+}
+
 // ValidateMeshConfig checks that the mesh config is well-formed
 func ValidateMeshConfig(mesh *meshconfig.MeshConfig) (errs error) {
 	if mesh.MixerCheckServer != "" {
@@ -1140,6 +1157,10 @@ func ValidateMeshConfig(mesh *meshconfig.MeshConfig) (errs error) {
 
 	if err := ValidateConnectTimeout(mesh.ConnectTimeout); err != nil {
 		errs = multierror.Append(errs, multierror.Prefix(err, "invalid connect timeout:"))
+	}
+
+	if err := ValidateProtocolDetectionTimeout(mesh.ProtocolDetectionTimeout); err != nil {
+		errs = multierror.Append(errs, multierror.Prefix(err, "invalid protocol detection timeout:"))
 	}
 
 	if mesh.DefaultConfig == nil {
@@ -2145,6 +2166,12 @@ func validateHTTPRoute(http *networking.HTTPRoute) (errs error) {
 		}
 	}
 
+	if http.MirrorPercentage != nil {
+		if value := http.MirrorPercentage.GetValue(); value > 100 {
+			errs = appendErrors(errs, fmt.Errorf("mirror_percentage must have a max value of 100 (it has %f)", value))
+		}
+	}
+
 	errs = appendErrors(errs, validateDestination(http.Mirror))
 	errs = appendErrors(errs, validateHTTPRedirect(http.Redirect))
 	errs = appendErrors(errs, validateHTTPRetry(http.Retries))
@@ -2568,7 +2595,7 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 						errs = appendErrors(errs, fmt.Errorf("endpoint port %v is not defined by the service entry", port))
 					}
 					errs = appendErrors(errs,
-						validatePortName(name),
+						ValidatePortName(name),
 						ValidatePort(int(port)))
 				}
 			}
@@ -2601,8 +2628,8 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 
 		for _, port := range serviceEntry.Ports {
 			errs = appendErrors(errs,
-				validatePortName(port.Name),
-				validateProtocol(port.Protocol),
+				ValidatePortName(port.Name),
+				ValidateProtocol(port.Protocol),
 				ValidatePort(int(port.Number)))
 		}
 
@@ -2610,14 +2637,14 @@ var ValidateServiceEntry = registerValidateFunc("ValidateServiceEntry",
 		return
 	})
 
-func validatePortName(name string) error {
+func ValidatePortName(name string) error {
 	if !labels.IsDNS1123Label(name) {
 		return fmt.Errorf("invalid port name: %s", name)
 	}
 	return nil
 }
 
-func validateProtocol(protocolStr string) error {
+func ValidateProtocol(protocolStr string) error {
 	// Empty string is used for protocol sniffing.
 	if protocolStr != "" && protocol.Parse(protocolStr) == protocol.Unsupported {
 		return fmt.Errorf("unsupported protocol: %s", protocolStr)
